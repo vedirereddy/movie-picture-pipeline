@@ -74,7 +74,7 @@ resource "aws_route_table_association" "private" {
 
 # Create EKS endpoint for private access
 resource "aws_vpc_endpoint" "eks" {
-  count               = var.enable_private == true ? 1 : 0 # only enable when private
+  count               = var.enable_private == true ? 1 : 0
   vpc_id              = aws_vpc.vpc.id
   service_name        = "com.amazonaws.us-east-1.eks"
   vpc_endpoint_type   = "Interface"
@@ -90,6 +90,7 @@ resource "aws_vpc_endpoint" "ec2" {
   service_name        = "com.amazonaws.us-east-1.ec2"
   vpc_endpoint_type   = "Interface"
   security_group_ids  = [aws_eks_cluster.main.vpc_config.0.cluster_security_group_id]
+  subnet_ids          = [aws_subnet.private_subnet.id]
   private_dns_enabled = true
 }
 
@@ -152,7 +153,6 @@ resource "aws_eks_cluster" "main" {
   depends_on = [aws_iam_role_policy_attachment.eks_cluster, aws_iam_role_policy_attachment.eks_service]
 }
 
-
 # Create an IAM role for the EKS cluster
 resource "aws_iam_role" "eks_cluster" {
   name = "eks_cluster_role"
@@ -182,7 +182,6 @@ resource "aws_iam_role_policy_attachment" "eks_service" {
   role       = aws_iam_role.eks_cluster.name
 }
 
-
 ##################
 # EKS Node Group
 ##################
@@ -197,6 +196,7 @@ resource "aws_eks_node_group" "main" {
   version         = aws_eks_cluster.main.version
   node_role_arn   = aws_iam_role.node_group.arn
   subnet_ids      = [var.enable_private == true ? aws_subnet.private_subnet.id : aws_subnet.public_subnet.id]
+  ami_type        = "AL2_x86_64"
   release_version = nonsensitive(data.aws_ssm_parameter.eks_ami_release_version.value)
   instance_types  = ["t3.small"]
 
@@ -206,9 +206,6 @@ resource "aws_eks_node_group" "main" {
     min_size     = 1
   }
 
-
-  # Ensure that IAM Role permissions are created before and deleted after EKS Node Group handling.
-  # Otherwise, EKS will not be able to properly delete EC2 Instances and Elastic Network Interfaces.
   depends_on = [
     aws_iam_role_policy_attachment.node_group_policy,
     aws_iam_role_policy_attachment.cni_policy,
@@ -220,7 +217,7 @@ resource "aws_eks_node_group" "main" {
   }
 }
 
-// IAM Configuration
+// IAM Configuration for Node Group
 resource "aws_iam_role" "node_group" {
   name               = "udacity-node-group"
   assume_role_policy = data.aws_iam_policy_document.assume_role_policy.json
@@ -255,7 +252,6 @@ data "aws_iam_policy_document" "assume_role_policy" {
 ######################
 # CodeBuild Resources
 ######################
-# Create a CodeBuild project
 resource "aws_codebuild_project" "codebuild" {
   name          = "udacity"
   description   = "Udacity CodeBuild project"
@@ -285,7 +281,6 @@ resource "aws_codebuild_project" "codebuild" {
   }
 }
 
-# Create the Codebuild Role
 resource "aws_iam_role" "codebuild" {
   name = "codebuild-role"
 
@@ -303,7 +298,6 @@ resource "aws_iam_role" "codebuild" {
   })
 }
 
-# Attach the IAM policy to the codebuild role
 resource "aws_iam_role_policy_attachment" "codebuild" {
   policy_arn = "arn:aws:iam::aws:policy/AWSCodeBuildAdminAccess"
   role       = aws_iam_role.codebuild.name
