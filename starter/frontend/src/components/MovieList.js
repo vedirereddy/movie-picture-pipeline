@@ -7,7 +7,11 @@ function MovieList({ onMovieClick }) {
 
   useEffect(() => {
     axios.get(`${process.env.REACT_APP_MOVIE_API_URL}/movies`).then((response) => {
-      setMovies(response.data.movies);
+      // Handles both { movies: [...] } and direct array [...] responses
+      const movieList = Array.isArray(response.data) ? response.data : response.data.movies;
+      setMovies(movieList || []);
+    }).catch((error) => {
+      console.error("Error fetching movies:", error);
     });
   }, []);
 
