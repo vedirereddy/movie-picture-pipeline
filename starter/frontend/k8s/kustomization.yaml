@@ -4,3 +4,6 @@ resources:
   - service.yaml
   - deployment.yaml
 namespace: default
+images:
+  - name: frontend
+    newName: 122798937169.dkr.ecr.us-east-1.amazonaws.com/frontend
