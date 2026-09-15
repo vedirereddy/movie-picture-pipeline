@@ -6,7 +6,8 @@ function MovieList({ onMovieClick }) {
   const [movies, setMovies] = useState([]);
 
   useEffect(() => {
-    const API_URL = process.env.REACT_APP_MOVIE_API_URL || 'http://a679c5483e1b54697ad3a5b56da7344f-734522383.us-east-1.elb.amazonaws.com';
+    // Completely removed process.env to force the direct backend LoadBalancer connection
+    const API_URL = 'http://a679c5483e1b54697ad3a5b56da7344f-734522383.us-east-1.elb.amazonaws.com';
 
     axios.get(`${API_URL}/movies`).then((response) => {
       const movieList = Array.isArray(response.data) ? response.data : response.data.movies;
