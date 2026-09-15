@@ -2,59 +2,91 @@ name: Frontend Continuous Deployment
 
 on:
   push:
-    branches: [ "main" ]
+    branches:
+      - main
     paths:
-      - 'starter/frontend/**'
+      - starter/frontend/**
   workflow_dispatch:
 
+env:
+  AWS_REGION: us-east-1
+  EKS_CLUSTER_NAME: cluster
+  ECR_REPOSITORY: frontend
+
+defaults:
+  run:
+    working-directory: starter/frontend
+
 jobs:
-  lint-and-test:
+  lint:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./starter/frontend
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-node@v3
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: '18'
-          cache: 'npm'
+          node-version: 18
+          cache: npm
           cache-dependency-path: starter/frontend/package-lock.json
       - run: npm ci
       - run: npm run lint
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: npm
+          cache-dependency-path: starter/frontend/package-lock.json
+      - run: npm ci
       - run: CI=true npm test
 
   build-and-deploy:
-    needs: lint-and-test
+    needs: [lint, test]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v2
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1
+          aws-region: ${{ env.AWS_REGION }}
 
-      - name: Log in to Amazon ECR
+      - name: Login to Amazon ECR
         id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v1
+        uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build, Tag, and Push Image
+      - name: Build, tag, and push image to ECR
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
+          REACT_APP_MOVIE_API_URL: ${{ secrets.REACT_APP_MOVIE_API_URL }}
         run: |
-          docker build --build-arg=REACT_APP_MOVIE_API_URL=http://a679c5483e1b54697ad3a5b56da7344f-734522383.us-east-1.elb.amazonaws.com -t $ECR_REGISTRY/frontend:$IMAGE_TAG ./starter/frontend
-          docker push $ECR_REGISTRY/frontend:$IMAGE_TAG
+          docker build \
+            --build-arg=REACT_APP_MOVIE_API_URL=$REACT_APP_MOVIE_API_URL \
+            --tag=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Install kustomize
+        run: |
+          curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+          sudo mv kustomize /usr/local/bin/
+
+      - name: Update kubeconfig
+        run: aws eks update-kubeconfig --name ${{ env.EKS_CLUSTER_NAME }} --region ${{ env.AWS_REGION }}
 
       - name: Deploy to EKS
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
+          IMAGE_TAG: ${{ github.sha }}s
         run: |
-          aws eks update-kubeconfig --name cluster --region us-east-1
-          cd starter/frontend/k8s
-          kustomize edit set image frontend=$ECR_REGISTRY/frontend:$IMAGE_TAG
+          cd k8s
+          kustomize edit set image frontend=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
           kustomize build | kubectl apply -f -
